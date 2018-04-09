@@ -97,6 +97,7 @@ while time.time() - stopwatch < timeout and i < loops:
     # TODO
     # actual tests with test set
     if i % acc_check == 0:
+        # "test" on training data
         jr = len(l0)
         kr = len(l0[0])
         ok = 0
@@ -112,9 +113,31 @@ while time.time() - stopwatch < timeout and i < loops:
             else:
                 not_ok += 1
         acc_list_tr.append(ok/(ok+not_ok))
+        # test on test set
+        z2 = np.matmul(test_i, w2)
+        l2 = sigm(z2)
+        z1 = np.matmul(l2, w1)
+        l1 = sigm(z1)
+        z0 = np.matmul(l1, w0)
+        l0 = sigm(z0)
+        jr = len(l0)
+        kr = len(l0[0])
+        ok = 0
+        not_ok = 0
+        for j in range(jr):
+            max = -1000
+            for k in range(kr):
+                if max < l0[j, k]:
+                    max = l0[j, k]
+                    ans = k
+            if test_l[j][ans] == 1:
+                ok += 1
+            else:
+                not_ok += 1
+        acc_list_test.append(ok/(ok+not_ok))
         err_list.append(np.mean(np.absolute(err)))
-        print("{}th loop - acc: {:.2%} err: {:.2%}"
-              .format(i, acc_list_tr[-1], err_list[-1]))
+        print("{}th loop - acc: tr {:.2%} test {:.2%}, err: {:.2%}"
+              .format(i, acc_list_tr[-1], acc_list_test[-1], err_list[-1]))
 
     # updating weights (applying -gradient)
     w0 += d0
@@ -130,5 +153,6 @@ print("{} learning loops @ {} learning rate, {:.2f} s, {:.2f} loops/s"
 
 plt.plot(err_list, label="err tr")
 plt.plot(acc_list_tr, label="acc tr")
+plt.plot(acc_list_test, label="acc test")
 plt.legend()
 plt.show()
