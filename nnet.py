@@ -41,22 +41,17 @@ class NNet:
     def sigm_d(self, x):
         return np.exp(-x)/np.power((np.exp(-x) + 1), 2)
 
-    def spin(self, lrate, loops=sys.maxsize, timeout=sys.maxsize, acc_check=10, verbose=False):
+    def spin(self, lrate, loops=sys.maxsize, timeout=sys.maxsize, epochs=sys.maxsize, batch=None, acc_check=10, verbose=False):
         loop_no = 0
         stopwatch = time.time()
 
         while time.time() - stopwatch < timeout and loop_no < loops:
-            z = [0] * (self.layers+1)
-            neuron_output = [0] * (self.layers+1)
             err = []
-            c = []
+            neuron_output = [0] * (self.layers+1)
             gradient = []
+            c = []
 
-            z[self.layers] = np.matmul(self.training_in, self.weights[self.layers])
-            for i in range(self.layers):
-                neuron_output[self.layers-i] = self.sigm(z[self.layers-i])
-                z[self.layers-i-1] = np.matmul(neuron_output[self.layers-i], self.weights[self.layers-i-1])
-            neuron_output[0] = self.sigm(z[0])
+            neuron_output, z = self.spin_nn(self.training_in)
 
             err.append(neuron_output[0] - self.trainig_val)
             for i in range(self.layers):
@@ -67,51 +62,8 @@ class NNet:
             gradient.append((-2*lrate/self.n) * self.training_in.T.dot(c[self.layers]))
 
             if loop_no % acc_check == 0:
-                self.stats_loopstamp.append(loop_no)
-                # testing on training data
-                ok = 0
-                not_ok = 0
-                for j in range(len(neuron_output[0])):
-                    max = 0
-                    for k in range(len(neuron_output[0][0])):
-                        if max < neuron_output[0][j, k]:
-                            max = neuron_output[0][j, k]
-                            ans = k
-                    if self.trainig_val[j][ans] == 1:
-                        ok += 1
-                    else:
-                        not_ok += 1
-                self.acc_list_tr.append(ok/(ok+not_ok))
+                self.record_stats(self.training_in, self.trainig_val, loop_no)
 
-                # spinning test set
-                z[self.layers] = np.matmul(self.test_in, self.weights[self.layers])
-                for i in range(self.layers):
-                    neuron_output[self.layers-i] = self.sigm(z[self.layers-i])
-                    z[self.layers-i-1] = np.matmul(neuron_output[self.layers-i], self.weights[self.layers-i-1])
-                neuron_output[0] = self.sigm(z[0])
-                # testing on test set
-                jr = len(neuron_output[0])
-                kr = len(neuron_output[0][0])
-                ok = 0
-                not_ok = 0
-                for j in range(jr):
-                    max = 0
-                    for k in range(kr):
-                        if max < neuron_output[0][j, k]:
-                            max = neuron_output[0][j, k]
-                            ans = k
-                    if self.test_val[j][ans] == 1:
-                        ok += 1
-                    else:
-                        not_ok += 1
-                self.acc_list_test.append(ok/(ok+not_ok))
-
-                self.err_list.append(np.mean(np.square(err[0])))
-                if verbose:
-                    print("{}th loop - acc: tr {:.2%} test {:.2%}, err: {:.3}"
-                          .format(loop_no, self.acc_list_tr[-1], self.acc_list_test[-1], self.err_list[-1]))
-
-            # updating weights (applying -gradient)
             for i in range(self.layers+1):
                 self.weights[i] += gradient[i]
 
@@ -122,6 +74,59 @@ class NNet:
         if verbose:
             print("{} learning loops @ {} learning rate, {:.2f} s, {:.2f} loops/s"
                   .format(loop_no, lrate, time.time() - stopwatch, loop_no/(time.time() - stopwatch)))
+
+    def spin_nn(self, data_in):
+        neuron_output = [0] * (self.layers+1)
+        z = [0] * (self.layers+1)
+
+        z[self.layers] = np.matmul(data_in, self.weights[self.layers])
+        for i in range(self.layers):
+            neuron_output[self.layers-i] = self.sigm(z[self.layers-i])
+            z[self.layers-i-1] = np.matmul(neuron_output[self.layers-i], self.weights[self.layers-i-1])
+        neuron_output[0] = self.sigm(z[0])
+        res = (neuron_output, z)
+
+        return res
+
+    def record_stats(self, data_in, data_val, loop_no):
+        self.stats_loopstamp.append(loop_no)
+        # testing on training data
+        ok = 0
+        not_ok = 0
+        neuron_output, z = self.spin_nn(data_in)
+        for j in range(len(neuron_output[0])):
+            max = 0
+            for k in range(len(neuron_output[0][0])):
+                if max < neuron_output[0][j, k]:
+                    max = neuron_output[0][j, k]
+                    ans = k
+            if self.trainig_val[j][ans] == 1:
+                ok += 1
+            else:
+                not_ok += 1
+        self.acc_list_tr.append(ok/(ok+not_ok))
+
+        # spinning test set
+        neuron_output, z = self.spin_nn(self.test_in)
+        # testing on test set
+        ok = 0
+        not_ok = 0
+        for j in range(len(neuron_output[0])):
+            max = 0
+            for k in range(len(neuron_output[0][0])):
+                if max < neuron_output[0][j, k]:
+                    max = neuron_output[0][j, k]
+                    ans = k
+            if self.test_val[j][ans] == 1:
+                ok += 1
+            else:
+                not_ok += 1
+        self.acc_list_test.append(ok/(ok+not_ok))
+        self.err_list.append(np.mean(np.square(neuron_output[0] - self.test_val)))
+        print("{}th loop - acc: tr {:.2%} test {:.2%}, err: {:.3}"
+                .format(loop_no, self.acc_list_tr[-1], self.acc_list_test[-1], self.err_list[-1]))
+
+
 
     def plot_stats(self):
         print("{} learning loops: {:.2f} s, {:.2f} loops/s"

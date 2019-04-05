@@ -1,6 +1,7 @@
 import idx2numpy
 import numpy as np
-from triple_layer_nn import NNet
+
+from nnet import NNet
 
 # prepare mnist data
 tr_i_raw = idx2numpy.convert_from_file('mnist\\train-images.idx3-ubyte')
@@ -16,6 +17,7 @@ for i in range(len(tr_l_raw)):
 for i in range(len(test_l_raw)):
     test_l[i][test_l_raw[i]] = 1
 
-nn = NNet(tr_i, test_i, tr_l, test_l)
-nn.spin(5, timeout=10*60, acc_check=5)
-nn.stats()
+nn = NNet(tr_i, test_i, tr_l, test_l, layers=[16,20])
+nn.spin(5, loops=10, acc_check=1, verbose=True)
+nn.spin(5, loops=190, acc_check=5, verbose=True)
+nn.plot_stats()
