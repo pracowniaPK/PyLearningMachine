@@ -1,139 +1,135 @@
-import idx2numpy
+import sys
+import time
+import math
+
 import numpy as np
 import matplotlib.pyplot as plt
-import time
-import sys
 
 
 class NNet:
-
-    def __init__(self, training_in, test_in, trainig_val, test_val, layers, random_seed=1):
-        if len(training_in) != len(trainig_val) or len(test_in) != len(test_val):
-            raise ValueError("lengths of training and test sets dont't match")
-
-        self.training_in = training_in
-        self.test_in = test_in
-        self.trainig_val = trainig_val
-        self.test_val = test_val
-        self.n = len(training_in)
-        m = len(test_in)
-        print("nodes in layer: input {}, output {}".format(self.n, m))
+    def __init__(self, in_size, val_size, layers, random_seed=1, verbose=True,
+            sigm=lambda x:1/(1+np.exp(-x)),
+            sigm_d=lambda x:np.exp(-x)/np.power((np.exp(-x) + 1), 2)):
+        self.verbose = verbose
         self.layers = len(layers)
-        print("{} hidden layers: {}".format(self.layers, layers))
+        if self.verbose:
+            print("nodes in layer: input {}, output {}".format(in_size, val_size))
+            print("{} hidden layers: {}".format(self.layers, layers))
+
+        self.sigm = sigm
+        self.sigm_d = sigm_d
 
         np.random.seed(random_seed)
         self.weights = []
-        self.weights.append(2*np.random.random([layers[0], len(trainig_val[0])])-1)
+        self.weights.append(2*np.random.random([layers[0], val_size])-1)
         for i in range(1, self.layers):
             self.weights.append(2*np.random.random([layers[i], layers[i-1]])-1)
-        self.weights.append(2*np.random.random([len(self.training_in[0]), layers[self.layers-1]])-1)
+        self.weights.append(2*np.random.random([in_size, layers[self.layers-1]])-1)
 
-        self.err_list = []
-        self.acc_list_tr = []
-        self.acc_list_test = []
+        self.stats_err_list = []
+        self.stats_acc_list = []
         self.stats_loopstamp = []
         self.total_time = 0
-        self.total_loops = 0
+        self.total_epochs = 0
 
-    def sigm(self, x):
-        return 1/(1+np.exp(-x))
-
-    def sigm_d(self, x):
-        return np.exp(-x)/np.power((np.exp(-x) + 1), 2)
-
-    def spin(self, lrate, loops=sys.maxsize, timeout=sys.maxsize, epochs=sys.maxsize, batch=None, acc_check=10, verbose=False):
-        loop_no = 0
+    def fit(self, x, y, epochs=sys.maxsize, batch=16, 
+            timeout=sys.maxsize, lrate=5, stats_record=1):
+        print('Fitting: batch size: {}'.format(batch))
         stopwatch = time.time()
+        start_epoch = self.total_epochs
 
-        while time.time() - stopwatch < timeout and loop_no < loops:
-            err = []
-            neuron_output = [0] * (self.layers+1)
-            gradient = []
-            c = []
+        while (time.time() - stopwatch < timeout 
+            and self.total_epochs - start_epoch < epochs):
 
-            neuron_output, z = self.spin_nn(self.training_in)
+            for i in range(math.ceil(len(x)/batch)):
+                batch_x = x[batch*i:batch*i+batch]
+                batch_y = y[batch*i:batch*i+batch]
 
-            err.append(neuron_output[0] - self.trainig_val)
-            for i in range(self.layers):
-                c.append(err[i] * self.sigm_d(z[i]))
-                gradient.append((-2*lrate/self.n) * neuron_output[i+1].T.dot(c[i]))
-                err.append(c[i].dot(self.weights[i].T))
-            c.append(err[self.layers] * self.sigm_d(z[self.layers]))
-            gradient.append((-2*lrate/self.n) * self.training_in.T.dot(c[self.layers]))
+                err = []
+                gradient = []
+                c = []
 
-            if loop_no % acc_check == 0:
-                self.record_stats(self.training_in, self.trainig_val, loop_no)
+                neuron_output, z = self._spin(batch_x)
 
-            for i in range(self.layers+1):
-                self.weights[i] += gradient[i]
+                err.append(neuron_output[0] - batch_y)
+                for i in range(self.layers):
+                    c.append(err[i] * self.sigm_d(z[i]))
+                    gradient.append((-2*lrate/batch) * neuron_output[i+1].T.dot(c[i]))
+                    err.append(c[i].dot(self.weights[i].T))
+                c.append(err[self.layers] * self.sigm_d(z[self.layers]))
+                gradient.append((-2*lrate/batch) * batch_x.T.dot(c[self.layers]))
 
-            loop_no += 1
+                for i in range(self.layers+1):
+                    self.weights[i] += gradient[i]
+
+            if (self.total_epochs - start_epoch) % stats_record == 0:
+                self.record_stats(x, y)
+
+            self.total_epochs += 1
 
         self.total_time += time.time() - stopwatch
-        self.total_loops += loop_no
-        if verbose:
-            print("{} learning loops @ {} learning rate, {:.2f} s, {:.2f} loops/s"
-                  .format(loop_no, lrate, time.time() - stopwatch, loop_no/(time.time() - stopwatch)))
+        print('time: {:.2f} s, {:.2f} epochs/s'.format(
+            self.total_time, 
+            self.total_epochs/self.total_time))
 
-    def spin_nn(self, data_in):
-        neuron_output = [0] * (self.layers+1)
-        z = [0] * (self.layers+1)
+    def predict(self, x):
+        res, _ = self._spin(x)
+        return res[0] 
 
-        z[self.layers] = np.matmul(data_in, self.weights[self.layers])
-        for i in range(self.layers):
-            neuron_output[self.layers-i] = self.sigm(z[self.layers-i])
-            z[self.layers-i-1] = np.matmul(neuron_output[self.layers-i], self.weights[self.layers-i-1])
-        neuron_output[0] = self.sigm(z[0])
-        res = (neuron_output, z)
-
-        return res
-
-    def record_stats(self, data_in, data_val, loop_no):
-        self.stats_loopstamp.append(loop_no)
-        # testing on training data
+    def evaluate(self, x, y):
         ok = 0
         not_ok = 0
-        neuron_output, z = self.spin_nn(data_in)
+        neuron_output, _ = self._spin(x)
         for j in range(len(neuron_output[0])):
-            max = 0
+            max = -1
             for k in range(len(neuron_output[0][0])):
                 if max < neuron_output[0][j, k]:
                     max = neuron_output[0][j, k]
                     ans = k
-            if self.trainig_val[j][ans] == 1:
+            if y[j][ans] == 1:
                 ok += 1
             else:
                 not_ok += 1
-        self.acc_list_tr.append(ok/(ok+not_ok))
+        acc = ok/(ok+not_ok)
+        err = np.mean(np.square(neuron_output[0] - y))
 
-        # spinning test set
-        neuron_output, z = self.spin_nn(self.test_in)
-        # testing on test set
-        ok = 0
-        not_ok = 0
-        for j in range(len(neuron_output[0])):
-            max = 0
-            for k in range(len(neuron_output[0][0])):
-                if max < neuron_output[0][j, k]:
-                    max = neuron_output[0][j, k]
-                    ans = k
-            if self.test_val[j][ans] == 1:
-                ok += 1
-            else:
-                not_ok += 1
-        self.acc_list_test.append(ok/(ok+not_ok))
-        self.err_list.append(np.mean(np.square(neuron_output[0] - self.test_val)))
-        print("{}th loop - acc: tr {:.2%} test {:.2%}, err: {:.3}"
-                .format(loop_no, self.acc_list_tr[-1], self.acc_list_test[-1], self.err_list[-1]))
+        return acc, err
 
+    def record_stats(self, x, y):
+        acc, err = self.evaluate(x, y)
+        if self.verbose:
+            self.print_stats(x, y, acc, err)
 
+        self.stats_loopstamp.append(self.total_epochs)
+        self.stats_acc_list.append(acc)
+        self.stats_err_list.append(err)
+
+    def print_stats(self, x, y, acc=None, err=None):
+        if acc == None:
+            acc, err = self.evaluate(x, y)
+
+        print("{}th epoch - acc: {:.2%}, err: {:.3}".format(
+            self.total_epochs, acc, err))
 
     def plot_stats(self):
-        print("{} learning loops: {:.2f} s, {:.2f} loops/s"
-              .format(self.total_loops, self.total_time, self.total_loops/self.total_time))
-
-        plt.plot(self.stats_loopstamp, self.err_list, label="err tr")
-        plt.plot(self.stats_loopstamp, self.acc_list_tr, label="acc tr")
-        plt.plot(self.stats_loopstamp, self.acc_list_test, label="acc test")
+        plt.figure()
+        plt.subplot(211)
+        plt.plot(self.stats_loopstamp, self.stats_err_list, label="Cost function")
+        plt.legend()
+        plt.subplot(212)
+        plt.plot(self.stats_loopstamp, self.stats_acc_list, label="Accuracy")
         plt.legend()
         plt.show()
+
+    def _spin(self, x):
+        neuron_output = [0] * (self.layers+2)
+        z = [0] * (self.layers+1)
+
+        neuron_output[self.layers+1] = x
+        for i in range(self.layers+1):
+            z[self.layers-i] = np.matmul(
+                neuron_output[self.layers-i+1], 
+                self.weights[self.layers-i])
+            neuron_output[self.layers-i] = self.sigm(z[self.layers-i])
+
+        return neuron_output, z
