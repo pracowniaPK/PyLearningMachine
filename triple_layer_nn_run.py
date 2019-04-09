@@ -1,5 +1,6 @@
 import idx2numpy
 import numpy as np
+import matplotlib.pyplot as plt
 
 from nnet import NNet
 
@@ -18,5 +19,23 @@ for i in range(len(test_l_raw)):
     test_l[i][test_l_raw[i]] = 1
 
 nn = NNet(784, 10, layers=[16,20])
-nn.fit(tr_i, tr_l, batch=32, timeout=60*0.5)
+nn.fit(tr_i, tr_l, batch=32, timeout=60*0.5, epochs=3)
 nn.plot_stats()
+
+res = nn.predict(test_i)
+acc_matrix = np.zeros((10, 10))
+for i in range(len(test_i)):
+    index_predicted = res[i].argmax()
+    index_true = test_l[i].argmax()
+    if index_predicted != index_true:
+        acc_matrix[index_true, index_predicted] += 1
+
+acc_matrix = acc_matrix/len(test_i)
+plt.matshow(acc_matrix)
+plt.xlabel('predicted values')
+plt.ylabel('true values')
+plt.xticks(np.arange(0,10))
+plt.yticks(np.arange(0,10))
+plt.colorbar()
+plt.show()
+
